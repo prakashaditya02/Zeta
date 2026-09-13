@@ -1,16 +1,26 @@
+use std::rc::Rc;
 use crate::chunk::*;
 use crate::expr::*;
+use crate::stmt::Stmt;
 use crate::value::*;
 use crate::opcode::*;
 
+pub struct Local {
+    name: String,
+    depth: u32
+}
 pub struct Compiler {
     pub chunk: Chunk,
+    scope_depth: u32,
+    locals: Vec<Local>
 }
 
 impl Compiler {
     fn new() -> Compiler {
         Compiler{
             chunk: Chunk::new(),
+            scope_depth: 0,
+            locals: Vec::new()
         }
     }
 
@@ -83,9 +93,128 @@ impl Compiler {
                 self.chunk.write(index.try_into().unwrap(), 0);
             },
 
-            _ => {panic!()}
+            Expr::Identifier(name) => {
+                for (index, local) in self.locals.iter().enumerate().rev() {
+                    if local.name == *name {
+                        self.chunk.write_opcode(OpCode::GetLocal, 0);
+                        self.chunk.write(index.try_into().unwrap(), 0);
+                        return;
+                    }
+                }
+                let index = self.chunk.add_constant(Value::String(name.clone()));
+                self.chunk.write_opcode(OpCode::GetGlobal, 0);
+                self.chunk.write(index.try_into().unwrap(), 0);
+            },
+
+            Expr::Assignment { name, value } => {
+                self.compile(value);
+
+                for (index, local) in self.locals.iter().enumerate().rev() {
+                    if local.name == *name {
+                        self.chunk.write_opcode(OpCode::SetLocal, 0);
+                        self.chunk.write(index.try_into().unwrap(), 0);
+                        return
+                    }
+                }
+                let index = self.chunk.add_constant(Value::String(name.clone()));
+                self.chunk.write_opcode(OpCode::SetGlobal, 0);
+                self.chunk.write(index.try_into().unwrap(), 0);
+            },
+
+            Expr::Call { callee, arguments } => {
+                self.compile(callee);
+                for argument in arguments.iter() {
+                    self.compile(argument);
+                }
+                self.chunk.write_opcode(OpCode::Call, 0);
+                self.chunk.write(arguments.len().try_into().unwrap(), 0);
+            },
         }
     }
+
+    fn compile_stmt(&mut self, stmt:&Stmt) {
+        match stmt {
+            Stmt::Let { name, value } => {
+                match value {
+                    Some(expr) => {
+                        self.compile(expr);
+                    }
+                    None => {
+                        self.chunk.write_opcode(OpCode::Nil, 0);
+                    }
+                }
+
+                if self.scope_depth == 0 {
+                    let index = self.chunk.add_constant(Value::String(name.clone()));
+                    self.chunk.write_opcode(OpCode::DefineGlobal, 0);
+                    self.chunk.write(index.try_into().unwrap(), 0);
+                } else {
+                    let local = Local {
+                        name: name.clone(),
+                        depth: self.scope_depth
+                    };
+                    self.locals.push(local);
+                }
+            },
+
+            Stmt::Block(statements) => {
+                self.scope_depth += 1;
+                for statement in statements {
+                    self.compile_stmt(statement);
+                }
+                self.scope_depth -= 1;
+                while let Some(local) = self.locals.last() {
+                    if local.depth <= self.scope_depth {
+                        break;
+                    }
+                    self.locals.pop();
+                    self.chunk.write_opcode(OpCode::Pop, 0);
+                }
+            },
+
+            Stmt::Fun { name, parameters, body } => {
+                let mut fun_compiler = Compiler::new();
+                fun_compiler.scope_depth += 1;
+
+                let local = Local {
+                    name: name.clone(),
+                    depth: fun_compiler.scope_depth,
+                };
+                fun_compiler.locals.push(local);
+
+                for param in parameters.iter() {
+                    let local = Local{
+                        name: param.clone(),
+                        depth: fun_compiler.scope_depth
+                    };
+                    fun_compiler.locals.push(local);
+                }
+
+                for body_stmt in body.iter() {
+                    fun_compiler.compile_stmt(body_stmt);
+                }
+
+                let value = Rc::new(fun_compiler.chunk);
+                let index = self.chunk.add_constant(Value::Fun(value));
+                self.chunk.write_opcode(OpCode::Constant, 0);
+                self.chunk.write(index.try_into().unwrap(), 0);
+
+                if self.scope_depth == 0 {
+                    let ind = self.chunk.add_constant(Value::String(name.clone()));
+                    self.chunk.write_opcode(OpCode::DefineGlobal, 0);
+                    self.chunk.write(ind.try_into().unwrap(), 0);
+                } else {
+                    let local = Local {
+                        name: name.clone(),
+                        depth: self.scope_depth
+                    };
+                    self.locals.push(local);
+                }
+            },
+
+            _ => panic!()
+        }
+    } 
 }
 
 #[test]
@@ -132,6 +261,162 @@ fn compiles_unary() {
         compiler.chunk.constants,
         vec![
             Value::Number(5.0)
+        ]
+    );
+}
+
+#[test]
+fn compiles_let_with_value() {
+    let mut compiler = Compiler::new();
+
+    compiler.compile_stmt(&Stmt::Let {
+        name: "x".to_string(),
+        value: Some(Expr::Number(42.0)),
+    });
+
+    assert_eq!(
+        compiler.chunk.code,
+        vec![
+            OpCode::Constant as u8,
+            0,
+            OpCode::DefineGlobal as u8,
+            1,
+        ]
+    );
+
+    assert_eq!(
+        compiler.chunk.constants,
+        vec![
+            Value::Number(42.0),
+            Value::String("x".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn compiles_local_let() {
+    let mut compiler = Compiler::new();
+
+    compiler.compile_stmt(&Stmt::Block(vec![
+        Stmt::Let {
+            name: "x".to_string(),
+            value: Some(Expr::Number(42.0)),
+        },
+    ]));
+
+    assert_eq!(
+        compiler.chunk.code,
+        vec![
+            OpCode::Constant as u8,
+            0,
+            OpCode::Pop as u8,
+        ]
+    );
+
+    assert_eq!(
+        compiler.chunk.constants,
+        vec![
+            Value::Number(42.0),
+        ]
+    );
+
+    assert!(compiler.locals.is_empty());
+}
+
+#[test]
+fn compiles_global_assignment() {
+    let mut compiler = Compiler::new();
+
+    compiler.compile(&Expr::Assignment {
+        name: "x".to_string(),
+        value: Box::new(Expr::Number(20.0)),
+    });
+
+    assert_eq!(
+        compiler.chunk.code,
+        vec![
+            OpCode::Constant as u8,
+            0,
+            OpCode::SetGlobal as u8,
+            1,
+        ]
+    );
+
+    assert_eq!(
+        compiler.chunk.constants,
+        vec![
+            Value::Number(20.0),
+            Value::String("x".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn compiles_function() {
+    let mut compiler = Compiler::new();
+
+    compiler.compile_stmt(&Stmt::Fun {
+        name: "foo".to_string(),
+        parameters: vec![],
+        body: vec![],
+    });
+
+    assert_eq!(
+        compiler.chunk.code,
+        vec![
+            OpCode::Constant as u8,
+            0,
+            OpCode::DefineGlobal as u8,
+            1,
+        ]
+    );
+
+    assert_eq!(compiler.chunk.constants.len(), 2);
+
+    assert_eq!(
+        compiler.chunk.constants[1],
+        Value::String("foo".to_string())
+    );
+
+    match &compiler.chunk.constants[0] {
+        Value::Fun(chunk) => {
+            assert!(chunk.code.is_empty());
+            assert!(chunk.constants.is_empty());
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn compiles_local_assignment() {
+    let mut compiler = Compiler::new();
+
+    compiler.scope_depth = 1;
+
+    compiler.locals.push(Local {
+        name: "x".to_string(),
+        depth: 1,
+    });
+
+    compiler.compile(&Expr::Assignment {
+        name: "x".to_string(),
+        value: Box::new(Expr::Number(20.0)),
+    });
+
+    assert_eq!(
+        compiler.chunk.code,
+        vec![
+            OpCode::Constant as u8,
+            0,
+            OpCode::SetLocal as u8,
+            0,
+        ]
+    );
+
+    assert_eq!(
+        compiler.chunk.constants,
+        vec![
+            Value::Number(20.0),
         ]
     );
 }

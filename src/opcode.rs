@@ -15,6 +15,13 @@ pub enum OpCode {
     Equal,
     Greater,
     Less,
+    Pop,
+    DefineGlobal,
+    GetGlobal,
+    GetLocal,
+    SetGlobal,
+    SetLocal,
+    Call,
 }
 
 pub fn byte_to_opcode(byte: u8) -> Result<OpCode, u8> {
@@ -33,6 +40,13 @@ pub fn byte_to_opcode(byte: u8) -> Result<OpCode, u8> {
         11 => Ok(OpCode::Equal),
         12 => Ok(OpCode::Greater),
         13 => Ok(OpCode::Less),
+        14 => Ok(OpCode::Pop),
+        15 => Ok(OpCode::DefineGlobal),
+        16 => Ok(OpCode::GetGlobal),
+        17 => Ok(OpCode::GetLocal),
+        18 => Ok(OpCode::SetGlobal),
+        19 => Ok(OpCode::SetLocal),
+        20 => Ok(OpCode::Call),
 
         _ => Err(byte),
     }

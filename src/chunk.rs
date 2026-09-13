@@ -1,5 +1,7 @@
 use crate::value::*;
 use crate::opcode::*;
+
+#[derive(PartialEq, Debug, Clone)]
 pub struct Chunk {
     pub code: Vec<u8>,
     pub line: Vec<usize>,
