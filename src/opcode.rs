@@ -22,6 +22,9 @@ pub enum OpCode {
     SetGlobal,
     SetLocal,
     Call,
+    Jump,
+    JumpIfFalse,
+    Loop,
 }
 
 pub fn byte_to_opcode(byte: u8) -> Result<OpCode, u8> {
@@ -47,6 +50,9 @@ pub fn byte_to_opcode(byte: u8) -> Result<OpCode, u8> {
         18 => Ok(OpCode::SetGlobal),
         19 => Ok(OpCode::SetLocal),
         20 => Ok(OpCode::Call),
+        21 => Ok(OpCode::Jump),
+        22 => Ok(OpCode::JumpIfFalse),
+        23 => Ok(OpCode::Loop),
 
         _ => Err(byte),
     }

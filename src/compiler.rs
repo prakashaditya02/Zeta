@@ -212,9 +212,82 @@ impl Compiler {
                 }
             },
 
+            Stmt::If { condition, then_branch, else_branch } => {
+                self.compile(condition);
+                let then_offset = self.emit_jump(OpCode::JumpIfFalse);
+
+                self.chunk.write_opcode(OpCode::Pop, 0);
+                for statement in then_branch {
+                    self.compile_stmt(statement);
+                }
+                let else_offset = self.emit_jump(OpCode::Jump);
+
+                self.patch_jump(then_offset);
+                self.chunk.write_opcode(OpCode::Pop, 0);
+                
+                if let Some(else_branch) = else_branch {
+                    for statement in else_branch {
+                        self.compile_stmt(statement);
+                    }
+                }
+                self.patch_jump(else_offset);
+            },
+
+            Stmt::While { condition, body } => {
+                let loop_start = self.chunk.code.len();
+
+                self.compile(condition);
+                let false_offset = self.emit_jump(OpCode::JumpIfFalse);
+
+                self.chunk.write_opcode(OpCode::Pop, 0);
+                for statement in body {
+                    self.compile_stmt(statement);
+                }
+
+                self.emit_loop(loop_start);
+                self.patch_jump(false_offset);
+                self.chunk.write_opcode(OpCode::Pop, 0);
+            },
+
+            Stmt::Expression(expr) => {
+                self.compile(expr);
+                self.chunk.write_opcode(OpCode::Pop, 0);
+            },
+
+            Stmt::Return(expr) => {
+                match expr {
+                    Some(expr) => self.compile(expr),
+                    None => self.chunk.write_opcode(OpCode::Nil, 0),
+                }
+                self.chunk.write_opcode(OpCode::Return, 0);
+            },
+
             _ => panic!()
         }
-    } 
+    }
+
+    fn emit_jump(&mut self, op: OpCode) -> usize {
+        self.chunk.write_opcode(op, 0);
+        let idx = self.chunk.code.len();        
+        self.chunk.write(0, 0);
+        self.chunk.write(0, 0);
+        return idx;
+    }
+
+    fn emit_loop(&mut self, loop_start: usize) {
+        self.chunk.write_opcode(OpCode::Loop, 0);
+
+        let offset = self.chunk.code.len() + 2 - loop_start;
+        self.chunk.write((offset / 256).try_into().unwrap(), 0);
+        self.chunk.write((offset % 256).try_into().unwrap(), 0);
+    }
+
+    fn patch_jump(&mut self, offset: usize) {
+        let jump = self.chunk.code.len() - offset -2;
+
+        self.chunk.code[offset] = (jump / 256).try_into().unwrap();  
+        self.chunk.code[offset + 1] = (jump % 256).try_into().unwrap();
+    }
 }
 
 #[test]
@@ -419,4 +492,210 @@ fn compiles_local_assignment() {
             Value::Number(20.0),
         ]
     );
+}
+
+#[test]
+fn compiles_while_with_local_assignment() {
+    let mut compiler = Compiler::new();
+
+    compiler.compile_stmt(&Stmt::Block(vec![
+        Stmt::Let {
+            name: "x".to_string(),
+            value: Some(Expr::Number(0.0)),
+        },
+
+        Stmt::While {
+            condition: Expr::Binary {
+                left: Box::new(Expr::Identifier("x".to_string())),
+                operator: BinaryOp::Less,
+                right: Box::new(Expr::Number(10.0)),
+            },
+
+            body: vec![
+                Stmt::Expression(
+                    Expr::Assignment {
+                        name: "x".to_string(),
+                        value: Box::new(
+                            Expr::Binary {
+                                left: Box::new(
+                                    Expr::Identifier("x".to_string())
+                                ),
+                                operator: BinaryOp::Add,
+                                right: Box::new(Expr::Number(1.0)),
+                            }
+                        ),
+                    }
+                )
+            ],
+        },
+    ]));
+
+    assert_eq!(
+        compiler.chunk.constants,
+        vec![
+            Value::Number(0.0),
+            Value::Number(10.0),
+            Value::Number(1.0),
+        ]
+    );
+
+    assert!(compiler.locals.is_empty());
+}
+
+#[test]
+fn compiles_function_with_if_and_returns() {
+    let mut compiler = Compiler::new();
+
+    compiler.compile_stmt(&Stmt::Fun {
+        name: "abs".to_string(),
+
+        parameters: vec![
+            "x".to_string(),
+        ],
+
+        body: vec![
+            Stmt::If {
+                condition: Expr::Binary {
+                    left: Box::new(
+                        Expr::Identifier("x".to_string())
+                    ),
+                    operator: BinaryOp::Less,
+                    right: Box::new(
+                        Expr::Number(0.0)
+                    ),
+                },
+
+                then_branch: vec![
+                    Stmt::Return(Some(
+                        Expr::Unary {
+                            operator: UnaryOp::Negate,
+                            right: Box::new(
+                                Expr::Identifier("x".to_string())
+                            ),
+                        }
+                    )),
+                ],
+
+                else_branch: Some(vec![
+                    Stmt::Return(Some(
+                        Expr::Identifier("x".to_string())
+                    )),
+                ]),
+            },
+        ],
+    });
+
+    match &compiler.chunk.constants[0] {
+        Value::Fun(chunk) => {
+            assert_eq!(
+                chunk.constants,
+                vec![
+                    Value::Number(0.0),
+                ]
+            );
+
+            // Don't assert the exact jump offsets yet.
+            // First verify the important opcode structure.
+            assert!(chunk.code.contains(&(OpCode::Less as u8)));
+            assert!(chunk.code.contains(&(OpCode::JumpIfFalse as u8)));
+            assert!(chunk.code.contains(&(OpCode::Negate as u8)));
+            assert!(chunk.code.contains(&(OpCode::Return as u8)));
+        }
+
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn compiles_while_with_if_else() {
+    let mut compiler = Compiler::new();
+
+    compiler.compile_stmt(&Stmt::Block(vec![
+        Stmt::Let {
+            name: "x".to_string(),
+            value: Some(Expr::Number(0.0)),
+        },
+
+        Stmt::While {
+            condition: Expr::Binary {
+                left: Box::new(
+                    Expr::Identifier("x".to_string())
+                ),
+                operator: BinaryOp::Less,
+                right: Box::new(
+                    Expr::Number(10.0)
+                ),
+            },
+
+            body: vec![
+                Stmt::If {
+                    condition: Expr::Binary {
+                        left: Box::new(
+                            Expr::Identifier("x".to_string())
+                        ),
+                        operator: BinaryOp::Equal,
+                        right: Box::new(
+                            Expr::Number(5.0)
+                        ),
+                    },
+
+                    then_branch: vec![
+                        Stmt::Expression(
+                            Expr::Assignment {
+                                name: "x".to_string(),
+                                value: Box::new(
+                                    Expr::Number(10.0)
+                                ),
+                            }
+                        ),
+                    ],
+
+                    else_branch: Some(vec![
+                        Stmt::Expression(
+                            Expr::Assignment {
+                                name: "x".to_string(),
+                                value: Box::new(
+                                    Expr::Binary {
+                                        left: Box::new(
+                                            Expr::Identifier("x".to_string())
+                                        ),
+                                        operator: BinaryOp::Add,
+                                        right: Box::new(
+                                            Expr::Number(1.0)
+                                        ),
+                                    }
+                                ),
+                            }
+                        ),
+                    ]),
+                },
+            ],
+        },
+    ]));
+
+    assert_eq!(
+        compiler.chunk.constants,
+        vec![
+            Value::Number(0.0),
+            Value::Number(10.0),
+            Value::Number(5.0),
+            Value::Number(10.0),
+            Value::Number(1.0),
+        ]
+    );
+
+    assert!(compiler.locals.is_empty());
+
+    let code = &compiler.chunk.code;
+
+    assert!(code.contains(&(OpCode::JumpIfFalse as u8)));
+    assert!(code.contains(&(OpCode::Jump as u8)));
+    assert!(code.contains(&(OpCode::Loop as u8)));
+
+    assert!(code.contains(&(OpCode::GetLocal as u8)));
+    assert!(code.contains(&(OpCode::SetLocal as u8)));
+
+    assert!(code.contains(&(OpCode::Less as u8)));
+    assert!(code.contains(&(OpCode::Equal as u8)));
+    assert!(code.contains(&(OpCode::Add as u8)));
 }
