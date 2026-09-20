@@ -16,11 +16,17 @@ pub struct Compiler {
 }
 
 impl Compiler {
-    fn new() -> Compiler {
+    pub fn new() -> Compiler {
         Compiler{
             chunk: Chunk::new(),
             scope_depth: 0,
             locals: Vec::new()
+        }
+    }
+
+    pub fn compile_program(&mut self, program: &Vec<Stmt>) {
+        for statement in program {
+            self.compile_stmt(&statement);
         }
     }
 
@@ -132,7 +138,7 @@ impl Compiler {
         }
     }
 
-    fn compile_stmt(&mut self, stmt:&Stmt) {
+    pub fn compile_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Let { name, value } => {
                 match value {

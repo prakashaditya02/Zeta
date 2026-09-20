@@ -10,14 +10,20 @@ pub struct VM {
     frames: Vec<CallFrame>
 }
 
-pub struct CallFrame  {
+pub struct CallFrame {
     chunk: Rc<Chunk>,
     ip: usize,
     base: usize
 }
 
+fn print(args: &[Value]) -> Value {
+    let prt: Vec<String> = args.iter().map(|v| v.to_string()).collect();
+    println!("{}", prt.join(" "));
+    Value::Nil
+}
+
 impl VM {
-    fn new() -> VM {
+    pub fn new() -> VM {
         VM {
             stack: Vec::new(),
             globals: HashMap::new(),
@@ -25,23 +31,22 @@ impl VM {
         }
     }
 
-    fn interpret(&mut self, chunk: Chunk) {
+    pub fn interpret(&mut self, chunk: Chunk) {
         let chunk = Rc::new(chunk);
         let callframe = CallFrame {
-            chunk: chunk,
+            chunk,
             ip: 0,
             base: 0,
         };
         self.frames.push(callframe);
+        self.globals.insert("print".to_string(), Value::NativeFn(print));
+
         loop {
-            let frame = self.frames.last_mut().unwrap();
-
-            let instruction = frame.chunk.code[frame.ip];
-            frame.ip += 1;
-
+            let instruction = self.read_byte();
             let opcode = byte_to_opcode(instruction).unwrap();
+
             match opcode {
-                OpCode::True  => {
+                OpCode::True => {
                     self.stack.push(Value::Bool(true));
                 },
 
@@ -63,10 +68,7 @@ impl VM {
                         Value::Number(n) => {
                             self.stack.push(Value::Number(-n));
                         },
-
-                        _ => {
-                            panic!("Operand must be a number");
-                        }
+                        _ => panic!("Operand must be a number"),
                     }
                 },
 
@@ -81,12 +83,9 @@ impl VM {
 
                     match (op1, op2) {
                         (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Number(a+b));
+                            self.stack.push(Value::Number(a + b));
                         },
-
-                        _ => {
-                            panic!("Operands must be numbers");
-                        }
+                        _ => panic!("Operands must be numbers"),
                     }
                 },
 
@@ -96,12 +95,9 @@ impl VM {
 
                     match (op1, op2) {
                         (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Number(a-b));
+                            self.stack.push(Value::Number(a - b));
                         },
-
-                        _ => {
-                            panic!("Operands must be numbers");
-                        }
+                        _ => panic!("Operands must be numbers"),
                     }
                 },
 
@@ -111,12 +107,9 @@ impl VM {
 
                     match (op1, op2) {
                         (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Number(a*b));
+                            self.stack.push(Value::Number(a * b));
                         },
-
-                        _ => {
-                            panic!("Operands must be numbers");
-                        }
+                        _ => panic!("Operands must be numbers"),
                     }
                 },
 
@@ -124,18 +117,14 @@ impl VM {
                     let op2 = self.stack.pop().unwrap();
                     let op1 = self.stack.pop().unwrap();
 
-
                     match (op1, op2) {
                         (Value::Number(a), Value::Number(b)) => {
                             if b == 0.0 {
                                 panic!("Divisor cannot be zero");
                             }
-                            self.stack.push(Value::Number(a/b));
+                            self.stack.push(Value::Number(a / b));
                         },
-
-                        _ => {
-                            panic!("Operands must be numbers");
-                        }
+                        _ => panic!("Operands must be numbers"),
                     }
                 },
 
@@ -152,12 +141,9 @@ impl VM {
 
                     match (left, right) {
                         (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Bool(a>b));
+                            self.stack.push(Value::Bool(a > b));
                         },
-
-                        _ => {
-                            panic!("Operands must be numbers");
-                        }
+                        _ => panic!("Operands must be numbers"),
                     }
                 },
 
@@ -167,140 +153,103 @@ impl VM {
 
                     match (left, right) {
                         (Value::Number(a), Value::Number(b)) => {
-                            self.stack.push(Value::Bool(a<b));
+                            self.stack.push(Value::Bool(a < b));
                         },
-
-                        _ => {
-                            panic!("Operands must be numbers");
-                        }
+                        _ => panic!("Operands must be numbers"),
                     }
                 },
 
                 OpCode::Constant => {
-                    let idx = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-
-                    let val = frame.chunk.constants[idx as usize].clone();
+                    let val = self.read_constant();
                     self.stack.push(val);
                 },
 
                 OpCode::DefineGlobal => {
-                    let idx = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-
-                    let name_val = &frame.chunk.constants[idx as usize];
-                    let name = match name_val {
-                        Value::String(s) => s.clone(),
-                        _ => panic!()
-                    };
-
+                    let name = self.read_string();
                     let value = self.stack.pop().unwrap();
                     self.globals.insert(name, value);
                 },
 
                 OpCode::GetGlobal => {
-                    let idx = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-
-                    let name_val = &frame.chunk.constants[idx as usize];
-                    let name = match name_val{
-                        Value::String(s) => s.clone(),
-                        _ => panic!()
-                    };
-
+                    let name = self.read_string();
                     match self.globals.get(&name) {
                         Some(x) => self.stack.push(x.clone()),
-                        None => panic!("Undefined variable")
+                        None => panic!("Undefined variable"),
                     }
                 },
 
                 OpCode::SetGlobal => {
-                    let idx = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-
-                    let name_val = &frame.chunk.constants[idx as usize];
-                    let name = match name_val {
-                        Value::String(s) => s.clone(),
-                        _ => panic!()
-                    };
-
+                    let name = self.read_string();
                     let value = self.stack.last().unwrap().clone();
 
                     match self.globals.contains_key(&name) {
-                        true => self.globals.insert(name, value),
-                        false => panic!("Undefined Variable")
+                        true => { self.globals.insert(name, value); },
+                        false => panic!("Undefined Variable"),
                     };
                 },
 
                 OpCode::GetLocal => {
-                    let slot = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-
-                    let val = self.stack[frame.base + slot as usize].clone();
+                    let slot = self.read_byte() as usize;
+                    let frame = self.frames.last().unwrap();
+                    let val = self.stack[frame.base + slot].clone();
                     self.stack.push(val);
                 },
 
                 OpCode::SetLocal => {
-                    let slot = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-
+                    let slot = self.read_byte() as usize;
+                    let frame = self.frames.last().unwrap();
                     let value = self.stack.last().unwrap().clone();
-                    self.stack[frame.base + slot as usize] = value;
+                    self.stack[frame.base + slot] = value;
                 },
 
                 OpCode::Jump => {
-                    let high = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-                    let low = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-
-                    frame.ip += (high as usize *256) + low as usize;
+                    let offset = self.read_u16() as usize;
+                    let frame = self.frames.last_mut().unwrap();
+                    frame.ip += offset;
                 },
 
                 OpCode::JumpIfFalse => {
-                    let high = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-                    let low = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-
-                    let offset = (high as usize * 256) + low as usize;
-
-                    if self.stack.last().unwrap().is_falsy() {
+                    let offset = self.read_u16() as usize;
+                    let condition = self.stack.last().unwrap().clone();
+                    if condition.is_falsy() {
+                        let frame = self.frames.last_mut().unwrap();
                         frame.ip += offset;
                     }
                 },
 
                 OpCode::Loop => {
-                    let high = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-                    let low = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-
-                    frame.ip -= (high as usize * 256) + low as usize;
+                    let offset = self.read_u16() as usize;
+                    let frame = self.frames.last_mut().unwrap();
+                    frame.ip -= offset;
                 },
 
                 OpCode::Call => {
-                    let arg_count = frame.chunk.code[frame.ip];
-                    frame.ip += 1;
-                    let callee_idx = self.stack.len() - arg_count as usize - 1;
+                    let arg_count = self.read_byte() as usize;
+                    let callee_idx = self.stack.len() - arg_count - 1;
                     let callee = self.stack[callee_idx].clone();
 
                     match callee {
                         Value::Fun(chunk) => {
-                            if arg_count as usize != chunk.arity {
-                                panic!("Expected {} number of arguments but recieved {}", chunk.arity, arg_count);
+                            if arg_count != chunk.arity {
+                                panic!("Expected {} arguments but received {}", chunk.arity, arg_count);
                             }
                             let fn_frame = CallFrame {
                                 chunk,
                                 ip: 0,
-                                base: callee_idx
+                                base: callee_idx,
                             };
                             self.frames.push(fn_frame);
                         },
 
-                        _ => {
-                            panic!("Only functions are callable")
-                        }
+                        Value::NativeFn(f) => {
+                            let args = &self.stack[callee_idx + 1..];
+                            let result = f(args);
+
+                            self.stack.truncate(callee_idx);
+                            self.stack.push(result);
+                        },
+
+                        _ => panic!("Only functions are callable"),
                     }
                 },
 
@@ -314,10 +263,6 @@ impl VM {
                     if self.frames.is_empty() {
                         break;
                     }
-                },
-
-                _ => {
-                    panic!();
                 }
             }
         }
@@ -327,11 +272,24 @@ impl VM {
         let frame = self.frames.last_mut().unwrap();
         let byte = frame.chunk.code[frame.ip];
         frame.ip += 1;
-        return byte;
+        byte
+    }
+
+    fn read_u16(&mut self) -> u16 {
+        let high = self.read_byte() as u16;
+        let low = self.read_byte() as u16;
+        (high << 8) | low
     }
 
     fn read_constant(&mut self) -> Value {
         let idx = self.read_byte() as usize;
-        return self.frames.last().unwrap().chunk.constants[idx].clone();
+        self.frames.last().unwrap().chunk.constants[idx].clone()
+    }
+
+    fn read_string(&mut self) -> String {
+        match self.read_constant() {
+            Value::String(s) => s,
+            _ => panic!("Expected string constant"),
+        }
     }
 }

@@ -17,7 +17,7 @@ impl Parser {
         }
     }
 
-    fn parse_prog(&mut self) -> Vec<Stmt> {
+    pub fn parse_prog(&mut self) -> Vec<Stmt> {
         let mut statements = Vec::new();
         while self.peek().token != TokenType::Eof {
             statements.push(self.parse_stmt());
