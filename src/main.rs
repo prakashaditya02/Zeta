@@ -8,6 +8,7 @@ mod opcode;
 mod value;
 mod compiler;
 mod chunk;
+mod vm;
 
 fn main() {
     println!("Hello, world!");

@@ -194,6 +194,7 @@ impl Compiler {
                     fun_compiler.compile_stmt(body_stmt);
                 }
 
+                fun_compiler.chunk.arity = parameters.len();
                 let value = Rc::new(fun_compiler.chunk);
                 let index = self.chunk.add_constant(Value::Fun(value));
                 self.chunk.write_opcode(OpCode::Constant, 0);
@@ -260,9 +261,7 @@ impl Compiler {
                     None => self.chunk.write_opcode(OpCode::Nil, 0),
                 }
                 self.chunk.write_opcode(OpCode::Return, 0);
-            },
-
-            _ => panic!()
+            }
         }
     }
 

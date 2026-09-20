@@ -6,6 +6,7 @@ pub struct Chunk {
     pub code: Vec<u8>,
     pub line: Vec<usize>,
     pub constants: Vec<Value>,
+    pub arity: usize,
 }
 
 impl Chunk {
@@ -14,6 +15,7 @@ impl Chunk {
             code: Vec::new(),
             line: Vec::new(),
             constants: Vec::new(),
+            arity: 0,
         }
     }
 
