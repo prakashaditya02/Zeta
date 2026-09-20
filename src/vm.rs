@@ -254,7 +254,11 @@ impl VM {
                 },
 
                 OpCode::Return => {
-                    let return_val = self.stack.pop().unwrap();
+                    let return_val = match self.stack.pop() {
+                        Some(value) => value,
+                        None => break,
+                    };
+                    
                     let frame = self.frames.pop().unwrap();
 
                     self.stack.truncate(frame.base);

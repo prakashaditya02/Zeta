@@ -1,3 +1,8 @@
+use std::env;
+use std::fs;
+use std::io;
+use std::io::*;
+
 mod token;
 mod lexer;
 mod stmt;
@@ -11,7 +16,7 @@ mod chunk;
 mod vm;
 
 
-fn interpret(source: &str) {
+fn interpret(source: &str, vm: &mut vm::VM) {
     let mut lexer = lexer::Lexer::new(source.to_string());
     let tokens = lexer.scan_tokens();
 
@@ -21,9 +26,29 @@ fn interpret(source: &str) {
     let mut compiler = compiler::Compiler::new();
     compiler.compile_program(&stmts);
 
-    let mut vm = vm::VM::new();
     vm.interpret(compiler.chunk);
 }
 fn main() {
-    println!("Hello, world!");
+    let args: Vec<String> = env::args().collect();
+    let mut vm = vm::VM::new();
+    if args.len() > 1 {
+        let source = fs::read_to_string(&args[1]).unwrap();
+        interpret(&source, &mut vm);
+    } else {
+        let mut input = String::new();
+        loop {
+            print!(">> ");
+            io::stdout().flush().unwrap();
+            input.clear();
+            io::stdin().read_line(&mut input).unwrap();
+
+            input = input.trim().to_string();
+            if input.is_empty() {
+                continue;
+            } else if (input == "Exit") || (input == "exit") {
+                break;
+            }
+            interpret(&input, &mut vm);
+        }
+    }
 }

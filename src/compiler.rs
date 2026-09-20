@@ -28,6 +28,7 @@ impl Compiler {
         for statement in program {
             self.compile_stmt(&statement);
         }
+        self.chunk.write_opcode(OpCode::Return, 0);
     }
 
     fn compile(&mut self, expr: &Expr) {
