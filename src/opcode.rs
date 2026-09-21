@@ -24,6 +24,7 @@ pub enum OpCode {
     Call,
     Jump,
     JumpIfFalse,
+    JumpIfTrue,
     Loop,
 }
 
@@ -52,7 +53,8 @@ pub fn byte_to_opcode(byte: u8) -> Result<OpCode, u8> {
         20 => Ok(OpCode::Call),
         21 => Ok(OpCode::Jump),
         22 => Ok(OpCode::JumpIfFalse),
-        23 => Ok(OpCode::Loop),
+        23 => Ok(OpCode::JumpIfTrue),
+        24 => Ok(OpCode::Loop),
 
         _ => Err(byte),
     }

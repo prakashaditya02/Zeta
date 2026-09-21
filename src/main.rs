@@ -28,6 +28,41 @@ fn interpret(source: &str, vm: &mut vm::VM) {
 
     vm.interpret(compiler.chunk);
 }
+
+fn input_is_complete(src: &str) -> bool {
+    let mut brace = 0;
+    let mut paren = 0;
+    let mut in_string = false;
+    let mut chars = src.chars().peekable();
+    while let Some(c) = chars.next() {
+        if in_string {
+            if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+            continue;
+        }
+        if c == '/' && chars.peek() == Some(&'/') {
+            break;
+        }
+        if c == '{' {
+            brace += 1;
+        } else if c == '}' {
+            brace -= 1;
+        } else if c == '(' {
+            paren += 1;
+        } else if c == ')' {
+            paren -= 1;
+        }
+    }
+    if in_string {
+        return false;
+    }
+    return brace <= 0 && paren <= 0;
+}
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut vm = vm::VM::new();
@@ -36,19 +71,43 @@ fn main() {
         interpret(&source, &mut vm);
     } else {
         let mut input = String::new();
+        let mut buf = String::new();
         loop {
-            print!(">> ");
+            if buf.is_empty() {
+                print!(">> ");
+            } else {
+                print!(".. ");
+            }
             io::stdout().flush().unwrap();
             input.clear();
-            io::stdin().read_line(&mut input).unwrap();
-
-            input = input.trim().to_string();
-            if input.is_empty() {
-                continue;
-            } else if (input == "Exit") || (input == "exit") {
-                break;
+            match io::stdin().read_line(&mut input) {
+                Ok(0) => break,
+                Ok(_) => {},
+                Err(e) => {
+                    eprintln!("Error reading input: {}", e);
+                    break;
+                }
             }
-            interpret(&input, &mut vm);
+
+            if buf.is_empty() {
+                let trimmed = input.trim();
+                if trimmed.is_empty() {
+                    continue;
+                } else if (trimmed == "Exit") || (trimmed == "exit") {
+                    break;
+                }
+            }
+            buf.push_str(&input);
+
+            if !input_is_complete(&buf) {
+                continue;
+            }
+            let src = buf.trim().to_string();
+            buf.clear();
+            if src.is_empty() {
+                continue;
+            }
+            interpret(&src, &mut vm);
         }
     }
 }

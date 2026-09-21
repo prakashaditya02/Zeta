@@ -269,6 +269,20 @@ impl Parser {
                     }
                     _ => panic!("Variable name must be an Identifier")
                 }
+            } else if self.peek().token == tt::And {
+                self.advance();
+                let right = self.parse_prec(Prec::And);
+                left = Expr::Logical {
+                    left: Box::new(left),
+                    operator: LogicalOp::And,
+                    right: Box::new(right) };
+            } else if self.peek().token == tt::Or {
+                self.advance();
+                let right = self.parse_prec(Prec::Or);
+                left = Expr::Logical {
+                    left: Box::new(left),
+                    operator: LogicalOp::Or,
+                    right: Box::new(right) };
             } else {
                 let operator = self.get_binary_op(&self.peek().token);
                 self.advance();

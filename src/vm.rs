@@ -85,7 +85,10 @@ impl VM {
                         (Value::Number(a), Value::Number(b)) => {
                             self.stack.push(Value::Number(a + b));
                         },
-                        _ => panic!("Operands must be numbers"),
+                        (Value::String(a), Value::String(b)) => {
+                            self.stack.push(Value::String(a + &b));
+                        },
+                        _ => panic!("Operands must be two numbers or two strings"),
                     }
                 },
 
@@ -212,6 +215,15 @@ impl VM {
                     let offset = self.read_u16() as usize;
                     let condition = self.stack.last().unwrap().clone();
                     if condition.is_falsy() {
+                        let frame = self.frames.last_mut().unwrap();
+                        frame.ip += offset;
+                    }
+                },
+
+                OpCode::JumpIfTrue => {
+                    let offset = self.read_u16() as usize;
+                    let condition = self.stack.last().unwrap().clone();
+                    if !condition.is_falsy() {
                         let frame = self.frames.last_mut().unwrap();
                         frame.ip += offset;
                     }

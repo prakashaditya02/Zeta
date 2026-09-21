@@ -90,6 +90,25 @@ impl Compiler {
                 }
             },
 
+            Expr::Logical { left, operator, right } => {
+                self.compile(&left);
+
+                match operator {
+                    LogicalOp::And => {
+                        let end = self.emit_jump(OpCode::JumpIfFalse);
+                        self.chunk.write_opcode(OpCode::Pop, 0);
+                        self.compile(&right);
+                        self.patch_jump(end);
+                    },
+                    LogicalOp::Or => {
+                        let end = self.emit_jump(OpCode::JumpIfTrue);
+                        self.chunk.write_opcode(OpCode::Pop, 0);
+                        self.compile(&right);
+                        self.patch_jump(end);
+                    },
+                }
+            },
+
             Expr::Grouping(val) => {
                 self.compile(&val);
             },
